@@ -1,0 +1,15 @@
+# --- Backend (Java/Maven) ---
+docintel-backend/target/
+docintel-backend/.idea/
+docintel-backend/*.iml
+docintel-backend/.mvn/wrapper/maven-wrapper.jar
+
+# --- Frontend (Node/Vite) ---
+docintel-ui/node_modules/
+docintel-ui/dist/
+docintel-ui/.vite/
+
+# --- OS / Editor noise ---
+.DS_Store
+Thumbs.db
+*.log

@@ -11,7 +11,15 @@ import com.docintel.docintel_backend.repository.ExtractedFieldRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
+import com.docintel.docintel_backend.service.OcrService;
+import com.docintel.docintel_backend.service.ClassificationService;
+import com.docintel.docintel_backend.service.ExtractionService;
+import com.docintel.docintel_backend.service.SummarizationService;
+import org.springframework.beans.factory.annotation.Value;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -22,48 +30,71 @@ public class DocumentController {
 
     private final DocumentRepository documentRepository;
     private final ExtractedFieldRepository fieldRepository;
+    private final com.docintel.docintel_backend.service.OcrService ocrService;
+    private final com.docintel.docintel_backend.service.ClassificationService classificationService;
+    private final com.docintel.docintel_backend.service.ExtractionService extractionService;
+    private final com.docintel.docintel_backend.service.SummarizationService summarizationService;
+    private final String uploadDir;
 
     public DocumentController(DocumentRepository documentRepository,
-                              ExtractedFieldRepository fieldRepository) {
+                              ExtractedFieldRepository fieldRepository,
+                              com.docintel.docintel_backend.service.OcrService ocrService,
+                              com.docintel.docintel_backend.service.ClassificationService classificationService,
+                              com.docintel.docintel_backend.service.ExtractionService extractionService,
+                              com.docintel.docintel_backend.service.SummarizationService summarizationService,
+                              @Value("${app.upload-dir}") String uploadDir) {
         this.documentRepository = documentRepository;
         this.fieldRepository = fieldRepository;
+        this.ocrService = ocrService;
+        this.classificationService = classificationService;
+        this.extractionService = extractionService;
+        this.summarizationService = summarizationService;
+        this.uploadDir = uploadDir;
     }
 
     @PostMapping("/upload")
     public ResponseEntity<DocumentUploadResponse> uploadDocument(
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file) throws java.io.IOException {
 
         Document doc = new Document();
         doc.setFilename(file.getOriginalFilename());
-        doc.setFilePath("/uploads/" + UUID.randomUUID() + "-" + file.getOriginalFilename());
         doc.setFileType(resolveFileType(file.getOriginalFilename()));
+        doc.setFilePath("pending");
+        documentRepository.save(doc);
+
+        String storedFilename = doc.getId() + "-" + file.getOriginalFilename();
+        Path targetPath = Paths.get(uploadDir, storedFilename);
+        Files.createDirectories(targetPath.getParent());
+        Files.write(targetPath, file.getBytes());
+
+        doc.setFilePath(targetPath.toString());
         documentRepository.save(doc);
 
         DocumentUploadResponse response = new DocumentUploadResponse(
-                doc.getId().toString(),
-                doc.getFilename(),
-                doc.getStatus().name()
-        );
+                doc.getId().toString(), doc.getFilename(), doc.getStatus().name());
         return ResponseEntity.ok(response);
     }
-
     @PostMapping("/{id}/process")
-    public ResponseEntity<DocumentDetailResponse> processDocument(@PathVariable UUID id) {
+    public ResponseEntity<DocumentDetailResponse> processDocument(@PathVariable UUID id) throws Exception {
         Document doc = documentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Document not found: " + id));
 
-        // --- MOCKED AI PIPELINE — Phase 4 replaces this block with real OCR/NLP ---
-        doc.setDocType(Document.DocType.INVOICE);
-        doc.setStatus(Document.DocumentStatus.DONE);
-        doc.setSummary("This is a commercial invoice. Vendor and total amount fields " +
-                "were extracted with lower confidence and should be reviewed.");
-        documentRepository.save(doc);
+        File file = new File(doc.getFilePath());
+        String rawText = ocrService.extractText(file);
 
-        saveMockField(doc, "Invoice Number", "INV-2024-0157", 0.94, ExtractedField.ConfidenceLevel.HIGH);
-        saveMockField(doc, "Date", "12/03/2024", 0.89, ExtractedField.ConfidenceLevel.HIGH);
-        saveMockField(doc, "Vendor Name", "Nexora Supplies Pvt Ltd", 0.71, ExtractedField.ConfidenceLevel.MEDIUM);
-        saveMockField(doc, "Total Amount", "₹ 42,850.00", 0.48, ExtractedField.ConfidenceLevel.LOW);
-        // --- END MOCKED BLOCK ---
+        Document.DocType docType = classificationService.classify(rawText);
+        doc.setDocType(docType);
+
+        List<ExtractedField> extractedFields = extractionService.extractFields(rawText, docType);
+        for (ExtractedField field : extractedFields) {
+            field.setDocument(doc);
+            fieldRepository.save(field);
+        }
+
+        String summary = summarizationService.summarize(docType, extractedFields);
+        doc.setSummary(summary);
+        doc.setStatus(Document.DocumentStatus.DONE);
+        documentRepository.save(doc);
 
         return ResponseEntity.ok(toDetailResponse(doc));
     }
@@ -101,16 +132,6 @@ public class DocumentController {
 
     // ---------- Private helpers ----------
 
-    private void saveMockField(Document doc, String label, String value,
-                               double confidence, ExtractedField.ConfidenceLevel level) {
-        ExtractedField field = new ExtractedField();
-        field.setDocument(doc);
-        field.setLabel(label);
-        field.setValue(value);
-        field.setConfidence(confidence);
-        field.setLevel(level);
-        fieldRepository.save(field);
-    }
 
     private DocumentDetailResponse toDetailResponse(Document doc) {
         List<FieldDto> fieldDtos = fieldRepository.findByDocumentId(doc.getId()).stream()

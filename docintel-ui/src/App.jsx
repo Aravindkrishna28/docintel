@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
+import { uploadDocument, processDocument, submitCorrections } from "./api";
 import {
   UploadCloud,
   FileText,
@@ -378,7 +379,7 @@ function FieldRow({ field }) {
   );
 }
 
-function DashboardScreen({ fields, fileMeta, onGoToCorrections }) {
+function DashboardScreen({ fields, fileMeta, summary, onGoToCorrections }) {
   const lowCount = fields.filter((f) => f.level !== "HIGH").length;
 
   return (
@@ -434,9 +435,9 @@ function DashboardScreen({ fields, fileMeta, onGoToCorrections }) {
             Document Summary
           </h2>
         </div>
-        <p className="mt-2.5 text-sm leading-relaxed" style={{ color: C.inkMuted, fontFamily: FONT_UI }}>
-          {SUMMARY_TEXT}
-        </p>
+       <p className="mt-2.5 text-sm leading-relaxed" style={{ color: C.inkMuted, fontFamily: FONT_UI }}>
+       {summary}
+       </p>
       </div>
     </div>
   );
@@ -585,6 +586,9 @@ function CorrectionScreen({ fields, onBack, onSubmit }) {
 /* ---------------------------- App ---------------------------- */
 
 export default function App() {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [documentId, setDocumentId] = useState(null);
+  const [summary, setSummary] = useState(SUMMARY_TEXT);
   const [screen, setScreen] = useState("upload");
   const [dragActive, setDragActive] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -593,31 +597,48 @@ export default function App() {
 
   const unlocked = ["upload", ...(fileMeta ? ["dashboard"] : []), ...(fileMeta ? ["correction"] : [])];
 
-  const handleFileChosen = (file, startProcessing) => {
-    if (file) {
-      const ext = file.name.split(".").pop().toLowerCase();
-      setFileMeta({ name: file.name, type: ext === "pdf" ? "pdf" : "image" });
-      return;
-    }
-    if (startProcessing) {
-      setProcessing(true);
-      setTimeout(() => {
-        setProcessing(false);
-        setScreen("dashboard");
-      }, 1400);
-    }
-  };
+  const handleFileChosen = async (file, startProcessing) => {
+  if (file) {
+    const ext = file.name.split(".").pop().toLowerCase();
+    setFileMeta({ name: file.name, type: ext === "pdf" ? "pdf" : "image" });
+    setSelectedFile(file);
+    return;
+  }
+  if (startProcessing && selectedFile) {
+    setProcessing(true);
+    try {
+      const uploadRes = await uploadDocument(selectedFile);
+      setDocumentId(uploadRes.documentId);
 
-  const handleCorrectionsSubmit = (draft) => {
-    setFields((prev) =>
-      prev.map((f) =>
-        draft[f.id] !== f.value
-          ? { ...f, value: draft[f.id], level: "HIGH", confidence: 0.97 }
-          : f
-      )
-    );
-  };
+      const processRes = await processDocument(uploadRes.documentId);
+      setFields(processRes.fields);
+      setSummary(processRes.summary);
 
+      setProcessing(false);
+      setScreen("dashboard");
+    } catch (err) {
+      setProcessing(false);
+      console.error(err);
+      alert("Something went wrong processing this document. Check the console.");
+    }
+  }
+};
+
+  const handleCorrectionsSubmit = async (draft) => {
+  const corrections = fields
+    .filter((f) => draft[f.id] !== f.value)
+    .map((f) => ({ fieldId: f.id, correctedValue: draft[f.id] }));
+
+  if (corrections.length === 0) return;
+
+  try {
+    const updated = await submitCorrections(documentId, corrections);
+    setFields(updated.fields);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to save corrections. Check the console.");
+  }
+};
   return (
     <div className="min-h-screen w-full" style={{ backgroundColor: C.bg }}>
       <Header screen={screen} unlocked={unlocked} onNavigate={setScreen} />
@@ -635,6 +656,7 @@ export default function App() {
       {screen === "dashboard" && (
         <DashboardScreen
           fields={fields}
+          summary={summary}
           fileMeta={fileMeta}
           onGoToCorrections={() => setScreen("correction")}
         />

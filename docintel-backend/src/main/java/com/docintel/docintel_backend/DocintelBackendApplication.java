@@ -11,7 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 
 @SpringBootApplication
-public class DocintelBackendApplication {
+public class    DocintelBackendApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(DocintelBackendApplication.class, args);

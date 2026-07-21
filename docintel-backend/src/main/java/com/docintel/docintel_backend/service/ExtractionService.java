@@ -21,14 +21,13 @@ public class ExtractionService {
 
     private static final Pattern TOTAL_AMOUNT =
             Pattern.compile("(?i)total\\s*amount\\s*[:\\-]?\\s*(?:rs\\.?|inr|₹)?\\s*([\\d,]+\\.\\d{2})");
-
     public List<ExtractedField> extractFields(String rawText, Document.DocType docType) {
         List<ExtractedField> fields = new ArrayList<>();
 
-        fields.add(buildField("Invoice Number", find(INVOICE_NUMBER, rawText)));
-        fields.add(buildField("Date", find(DATE, rawText)));
-        fields.add(buildField("Vendor Name", guessVendorName(rawText)));
-        fields.add(buildField("Total Amount", find(TOTAL_AMOUNT, rawText)));
+        fields.add(buildField("Invoice Number", find(INVOICE_NUMBER, rawText), docType));
+        fields.add(buildField("Date", find(DATE, rawText), docType));
+        fields.add(buildField("Vendor Name", guessVendorName(rawText), docType));
+        fields.add(buildField("Total Amount", find(TOTAL_AMOUNT, rawText), docType));
 
         return fields;
     }
@@ -37,7 +36,11 @@ public class ExtractionService {
         Matcher matcher = pattern.matcher(text);
         return matcher.find() ? matcher.group(1).trim() : null;
     }
+    private final FeedbackService feedbackService;
 
+    public ExtractionService(FeedbackService feedbackService) {
+        this.feedbackService = feedbackService;
+    }
     private String guessVendorName(String text) {
         // Heuristic: the vendor name is usually the first non-blank line
         // on a letterhead-style invoice. This is a weaker signal than
@@ -64,25 +67,35 @@ public class ExtractionService {
 
 
 
-    private ExtractedField buildField(String label, String value) {
+    private ExtractedField buildField(String label, String value, Document.DocType docType) {
         ExtractedField field = new ExtractedField();
         field.setLabel(label);
 
+        double confidence;
+        ExtractedField.ConfidenceLevel level;
+
         if (value == null || value.isBlank()) {
             field.setValue("");
-            field.setConfidence(0.30);
-            field.setLevel(ExtractedField.ConfidenceLevel.LOW);
+            confidence = 0.30;
+            level = ExtractedField.ConfidenceLevel.LOW;
         } else if (label.equals("Vendor Name")) {
-            // heuristic-based field: always capped at MEDIUM, never HIGH
             field.setValue(value);
-            field.setConfidence(0.65);
-            field.setLevel(ExtractedField.ConfidenceLevel.MEDIUM);
+            confidence = 0.65;
+            level = ExtractedField.ConfidenceLevel.MEDIUM;
         } else {
-            // regex-matched field: high confidence
             field.setValue(value);
-            field.setConfidence(0.90);
-            field.setLevel(ExtractedField.ConfidenceLevel.HIGH);
+            confidence = 0.90;
+            level = ExtractedField.ConfidenceLevel.HIGH;
         }
+
+        Double cap = feedbackService.getConfidenceCap(label, docType);
+        if (cap != null && confidence > cap) {
+            confidence = cap;
+            level = ExtractedField.ConfidenceLevel.MEDIUM;
+        }
+
+        field.setConfidence(confidence);
+        field.setLevel(level);
         return field;
     }
 }

@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import com.docintel.docintel_backend.exception.DocumentProcessingException;
+import com.docintel.docintel_backend.service.FeedbackService;
 import com.docintel.docintel_backend.exception.DocumentNotFoundException;
 import com.docintel.docintel_backend.exception.FieldNotFoundException;
 import com.docintel.docintel_backend.exception.UnsupportedFileTypeException;
@@ -38,18 +39,20 @@ public class DocumentController {
 
     private final DocumentRepository documentRepository;
     private final ExtractedFieldRepository fieldRepository;
-    private final com.docintel.docintel_backend.service.OcrService ocrService;
-    private final com.docintel.docintel_backend.service.ClassificationService classificationService;
-    private final com.docintel.docintel_backend.service.ExtractionService extractionService;
-    private final com.docintel.docintel_backend.service.SummarizationService summarizationService;
+    private final OcrService ocrService;
+    private final ClassificationService classificationService;
+    private final ExtractionService extractionService;
+    private final SummarizationService summarizationService;
+    private final FeedbackService feedbackService;
     private final String uploadDir;
 
     public DocumentController(DocumentRepository documentRepository,
                               ExtractedFieldRepository fieldRepository,
-                              com.docintel.docintel_backend.service.OcrService ocrService,
-                              com.docintel.docintel_backend.service.ClassificationService classificationService,
-                              com.docintel.docintel_backend.service.ExtractionService extractionService,
-                              com.docintel.docintel_backend.service.SummarizationService summarizationService,
+                              OcrService ocrService,
+                              ClassificationService classificationService,
+                              ExtractionService extractionService,
+                              SummarizationService summarizationService,
+                              FeedbackService feedbackService,
                               @Value("${app.upload-dir}") String uploadDir) {
         this.documentRepository = documentRepository;
         this.fieldRepository = fieldRepository;
@@ -57,6 +60,7 @@ public class DocumentController {
         this.classificationService = classificationService;
         this.extractionService = extractionService;
         this.summarizationService = summarizationService;
+        this.feedbackService = feedbackService;
         this.uploadDir = uploadDir;
     }
 
@@ -127,28 +131,24 @@ public class DocumentController {
             @PathVariable UUID id,
             @RequestBody CorrectionRequest request) {
 
-        UUID fieldId = null;
-        UUID finalFieldId = fieldId;
-        ExtractedField field = fieldRepository.findById(fieldId)
-                .orElseThrow(() -> new FieldNotFoundException(finalFieldId));
+        Document doc = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+
         for (CorrectionRequest.CorrectionItem item : request.getCorrections()) {
-            fieldId = UUID.fromString(item.getFieldId());
-            UUID finalFieldId1 = fieldId;
-            field = fieldRepository.findById(fieldId)
-                    .orElseThrow(() -> new RuntimeException("Field not found: " + finalFieldId1));
+            UUID fieldId = UUID.fromString(item.getFieldId());
+            ExtractedField field = fieldRepository.findById(fieldId)
+                    .orElseThrow(() -> new FieldNotFoundException(fieldId));
 
             field.setValue(item.getCorrectedValue());
             field.setLevel(ExtractedField.ConfidenceLevel.HIGH);
             field.setConfidence(0.97);
             fieldRepository.save(field);
 
-            // NOTE: Correction history + FeedbackPattern logic is Phase 6 — not built yet
+            feedbackService.recordCorrection(field.getLabel(), doc.getDocType());
         }
 
-        Document doc = null;
         return ResponseEntity.ok(toDetailResponse(doc));
     }
-
     // ---------- Private helpers ----------
 
 

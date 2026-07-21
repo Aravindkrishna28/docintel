@@ -2,6 +2,7 @@ package com.docintel.docintel_backend.service;
 
 import com.docintel.docintel_backend.entity.Document;
 import com.docintel.docintel_backend.entity.ExtractedField;
+import com.docintel.docintel_backend.exception.UnsupportedFileTypeException;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -49,6 +50,19 @@ public class ExtractionService {
         }
         return null;
     }
+    private Document.FileType resolveFileType(String filename) {
+        if (filename == null) {
+            throw new UnsupportedFileTypeException("unknown");
+        }
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".pdf")) return Document.FileType.PDF;
+        if (lower.endsWith(".png")) return Document.FileType.PNG;
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return Document.FileType.JPG;
+        throw new UnsupportedFileTypeException(filename);
+    }
+
+
+
 
     private ExtractedField buildField(String label, String value) {
         ExtractedField field = new ExtractedField();

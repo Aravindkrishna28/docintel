@@ -6,6 +6,8 @@ import com.docintel.docintel_backend.dto.DocumentUploadResponse;
 import com.docintel.docintel_backend.dto.FieldDto;
 import com.docintel.docintel_backend.entity.Document;
 import com.docintel.docintel_backend.entity.ExtractedField;
+import com.docintel.docintel_backend.exception.DocumentNotFoundException;
+import com.docintel.docintel_backend.exception.FieldNotFoundException;
 import com.docintel.docintel_backend.repository.DocumentRepository;
 import com.docintel.docintel_backend.repository.ExtractedFieldRepository;
 import org.springframework.http.ResponseEntity;
@@ -17,12 +19,18 @@ import com.docintel.docintel_backend.service.ExtractionService;
 import com.docintel.docintel_backend.service.SummarizationService;
 import org.springframework.beans.factory.annotation.Value;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import com.docintel.docintel_backend.exception.DocumentProcessingException;
+import com.docintel.docintel_backend.exception.DocumentNotFoundException;
+import com.docintel.docintel_backend.exception.FieldNotFoundException;
+import com.docintel.docintel_backend.exception.UnsupportedFileTypeException;
+import com.docintel.docintel_backend.exception.DocumentProcessingException;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -54,7 +62,7 @@ public class DocumentController {
 
     @PostMapping("/upload")
     public ResponseEntity<DocumentUploadResponse> uploadDocument(
-            @RequestParam("file") MultipartFile file) throws java.io.IOException {
+            @RequestParam("file") MultipartFile file) throws IOException {
 
         Document doc = new Document();
         doc.setFilename(file.getOriginalFilename());
@@ -80,8 +88,16 @@ public class DocumentController {
                 .orElseThrow(() -> new RuntimeException("Document not found: " + id));
 
         File file = new File(doc.getFilePath());
-        String rawText = ocrService.extractText(file);
 
+        String rawText;
+        try {
+            rawText = ocrService.extractText(file);
+        } catch (Exception e) {
+            doc.setStatus(Document.DocumentStatus.FAILED);
+            doc.setFailureReason("OCR failed: " + e.getMessage());
+            documentRepository.save(doc);
+            throw new DocumentProcessingException("Failed to extract text from document", e);
+        }
         Document.DocType docType = classificationService.classify(rawText);
         doc.setDocType(docType);
 
@@ -102,7 +118,7 @@ public class DocumentController {
     @GetMapping("/{id}")
     public ResponseEntity<DocumentDetailResponse> getDocument(@PathVariable UUID id) {
         Document doc = documentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + id));
+                .orElseThrow(() -> new DocumentNotFoundException(id));
         return ResponseEntity.ok(toDetailResponse(doc));
     }
 
@@ -111,13 +127,15 @@ public class DocumentController {
             @PathVariable UUID id,
             @RequestBody CorrectionRequest request) {
 
-        Document doc = documentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + id));
-
+        UUID fieldId = null;
+        UUID finalFieldId = fieldId;
+        ExtractedField field = fieldRepository.findById(fieldId)
+                .orElseThrow(() -> new FieldNotFoundException(finalFieldId));
         for (CorrectionRequest.CorrectionItem item : request.getCorrections()) {
-            UUID fieldId = UUID.fromString(item.getFieldId());
-            ExtractedField field = fieldRepository.findById(fieldId)
-                    .orElseThrow(() -> new RuntimeException("Field not found: " + fieldId));
+            fieldId = UUID.fromString(item.getFieldId());
+            UUID finalFieldId1 = fieldId;
+            field = fieldRepository.findById(fieldId)
+                    .orElseThrow(() -> new RuntimeException("Field not found: " + finalFieldId1));
 
             field.setValue(item.getCorrectedValue());
             field.setLevel(ExtractedField.ConfidenceLevel.HIGH);
@@ -127,6 +145,7 @@ public class DocumentController {
             // NOTE: Correction history + FeedbackPattern logic is Phase 6 — not built yet
         }
 
+        Document doc = null;
         return ResponseEntity.ok(toDetailResponse(doc));
     }
 
@@ -157,10 +176,13 @@ public class DocumentController {
     }
 
     private Document.FileType resolveFileType(String filename) {
-        if (filename == null) return Document.FileType.PDF;
+        if (filename == null) {
+            throw new UnsupportedFileTypeException("unknown");
+        }
         String lower = filename.toLowerCase();
+        if (lower.endsWith(".pdf")) return Document.FileType.PDF;
         if (lower.endsWith(".png")) return Document.FileType.PNG;
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return Document.FileType.JPG;
-        return Document.FileType.PDF;
+        throw new UnsupportedFileTypeException(filename);
     }
 }

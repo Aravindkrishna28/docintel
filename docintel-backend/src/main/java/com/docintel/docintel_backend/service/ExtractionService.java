@@ -2,7 +2,6 @@ package com.docintel.docintel_backend.service;
 
 import com.docintel.docintel_backend.entity.Document;
 import com.docintel.docintel_backend.entity.ExtractedField;
-import com.docintel.docintel_backend.exception.UnsupportedFileTypeException;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -21,14 +20,19 @@ public class ExtractionService {
 
     private static final Pattern TOTAL_AMOUNT =
             Pattern.compile("(?i)total\\s*amount\\s*[:\\-]?\\s*(?:rs\\.?|inr|₹)?\\s*([\\d,]+\\.\\d{2})");
+
+    private final FeedbackService feedbackService;
+
+    public ExtractionService(FeedbackService feedbackService) {
+        this.feedbackService = feedbackService;
+    }
+
     public List<ExtractedField> extractFields(String rawText, Document.DocType docType) {
         List<ExtractedField> fields = new ArrayList<>();
-
         fields.add(buildField("Invoice Number", find(INVOICE_NUMBER, rawText), docType));
         fields.add(buildField("Date", find(DATE, rawText), docType));
         fields.add(buildField("Vendor Name", guessVendorName(rawText), docType));
         fields.add(buildField("Total Amount", find(TOTAL_AMOUNT, rawText), docType));
-
         return fields;
     }
 
@@ -36,15 +40,8 @@ public class ExtractionService {
         Matcher matcher = pattern.matcher(text);
         return matcher.find() ? matcher.group(1).trim() : null;
     }
-    private final FeedbackService feedbackService;
 
-    public ExtractionService(FeedbackService feedbackService) {
-        this.feedbackService = feedbackService;
-    }
     private String guessVendorName(String text) {
-        // Heuristic: the vendor name is usually the first non-blank line
-        // on a letterhead-style invoice. This is a weaker signal than
-        // the regex-based fields above, so it gets MEDIUM confidence below.
         for (String line : text.split("\\r?\\n")) {
             String trimmed = line.trim();
             if (trimmed.length() > 3 && !trimmed.matches(".*\\d{3,}.*")) {
@@ -53,19 +50,6 @@ public class ExtractionService {
         }
         return null;
     }
-    private Document.FileType resolveFileType(String filename) {
-        if (filename == null) {
-            throw new UnsupportedFileTypeException("unknown");
-        }
-        String lower = filename.toLowerCase();
-        if (lower.endsWith(".pdf")) return Document.FileType.PDF;
-        if (lower.endsWith(".png")) return Document.FileType.PNG;
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return Document.FileType.JPG;
-        throw new UnsupportedFileTypeException(filename);
-    }
-
-
-
 
     private ExtractedField buildField(String label, String value, Document.DocType docType) {
         ExtractedField field = new ExtractedField();

@@ -89,8 +89,7 @@ public class DocumentController {
     @PostMapping("/{id}/process")
     public ResponseEntity<DocumentDetailResponse> processDocument(@PathVariable UUID id) throws Exception {
         Document doc = documentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + id));
-
+                .orElseThrow(() -> new DocumentNotFoundException(id));
         File file = new File(doc.getFilePath());
 
         String rawText;

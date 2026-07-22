@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
-
+import org.springframework.web.multipart.MultipartException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -37,6 +37,11 @@ public class GlobalExceptionHandler {
                 "No file was included in the request. Expected a form-data part named 'file'.");
     }
 
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ErrorResponse> handleMultipartError(MultipartException ex) {
+        return build(HttpStatus.BAD_REQUEST, "MISSING_FILE",
+                "No file was included in the request, or the request was not properly formatted as multipart/form-data.");
+    }
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleMaxSize(MaxUploadSizeExceededException ex) {
         return build(HttpStatus.PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE",

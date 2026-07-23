@@ -1,4 +1,4 @@
-const BASE_URL = "https://docintel-bzwh.onrender.com";
+const BASE_URL = "https://docintel-bzwh.onrender.com/api";
 
 export async function uploadDocument(file) {
   const formData = new FormData();

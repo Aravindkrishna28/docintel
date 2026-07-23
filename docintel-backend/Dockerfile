@@ -26,4 +26,4 @@ COPY --from=build /app/target/*.jar app.jar
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-Xmx400m", "-jar", "app.jar"]

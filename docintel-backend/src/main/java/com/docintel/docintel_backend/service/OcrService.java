@@ -36,7 +36,7 @@ public class OcrService {
         try (PDDocument document = PDDocument.load(file)) {
             PDFRenderer renderer = new PDFRenderer(document);
             for (int page = 0; page < document.getNumberOfPages(); page++) {
-                BufferedImage image = renderer.renderImageWithDPI(page, 300);
+                BufferedImage image = renderer.renderImageWithDPI(page, 150);
                 text.append(tesseract.doOCR(image)).append("\n");
             }
         }
